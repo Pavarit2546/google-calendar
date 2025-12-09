@@ -3,7 +3,9 @@ from flask import Flask, request, redirect, jsonify, session, url_for, render_te
 import requests
 import os
 import webbrowser
-from dotenv import load_dotenv
+from dotenv import load_dotenv, set_key
+from google.oauth2 import service_account
+from google.auth.transport.requests import Request as GoogleAuthRequest
 
 load_dotenv()
 
@@ -15,10 +17,39 @@ CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 TOKEN_ENDPOINT = os.getenv("TOKEN_ENDPOINT")
 AUTH_URL = os.getenv("AUTH_URL")
 CALENDAR_API_BASE = os.getenv("CALENDAR_API_BASE")
+CALENDAR_SCOPE = os.getenv("CALENDAR_SCOPE")
 
-GLOBAL_REFRESH_TOKEN = None
-GLOBAL_ACCESS_TOKEN_CACHE = None
+GLOBAL_REFRESH_TOKEN = os.getenv("GLOBAL_REFRESH_TOKEN", '')
+GLOBAL_ACCESS_TOKEN_CACHE = ''
+
+SERVICE_ACCOUNT_KEY_FILE = 'service-account-key.json'
 # -----------------------------------------------------
+
+def refresh_access_token_logic():
+    """ใช้ Refresh Token ที่เก็บไว้เพื่อขอ Access Token ใหม่โดยอัตโนมัติ"""
+    global GLOBAL_REFRESH_TOKEN
+
+    if not GLOBAL_REFRESH_TOKEN:
+        return '' 
+        
+    token_data = {
+        'client_id': os.getenv("CLIENT_ID"),
+        'client_secret': os.getenv("CLIENT_SECRET"),
+        'refresh_token': GLOBAL_REFRESH_TOKEN,
+        'grant_type': 'refresh_token'
+    }
+    
+    response = requests.post(TOKEN_ENDPOINT, data=token_data)
+    print("REFRESH TOKEN RESPONSE:", GLOBAL_REFRESH_TOKEN)
+    if response.status_code == 200:
+        new_token = response.json().get('access_token')
+        # ไม่ต้องเก็บใน Cache เพราะเราใช้ Token ใหม่นี้ทันที
+        return new_token
+    
+    # หากรีเฟรชล้มเหลว (เช่น Token ถูกเพิกถอน) ให้ล้าง Refresh Token นั้น
+    print(f"TOKEN REFRESH FAILED (Status: {response.status_code}): {response.text}")
+    GLOBAL_REFRESH_TOKEN = '' 
+    return None
 
 # 1. 🔑 Endpoint สำหรับเริ่มการยืนยันตัวตน
 @app.route('/auth/google')
@@ -27,13 +58,12 @@ def google_auth():
     # ** ⚠️ ต้องแทนที่ YOUR_NGROK_URL ด้วย URL จริงที่ได้จาก ngrok **
     # REDIRECT_URI = f"{request.url_root.strip('/')}/auth/google/callback"
     REDIRECT_URI = os.getenv("REDIRECT_URI")
-    
     # สร้าง URL สำหรับส่งผู้ใช้ไปที่ Google
     auth_params = {
         'client_id': CLIENT_ID,
         'redirect_uri': REDIRECT_URI,
         'response_type': 'code',
-        'scope': 'https://www.googleapis.com/auth/calendar',
+        'scope': CALENDAR_SCOPE,
         'access_type': 'offline', # สำคัญมากในการขอ Refresh Token
         'prompt': 'consent'      # แนะนำให้ขอสิทธิ์ทุกครั้งในขั้นตอนทดสอบ
     }
@@ -44,24 +74,23 @@ def google_auth():
     
     print(f"Redirecting user to: {full_auth_url}")
     #return แบบ JSON (สำหรับทดสอบ) มันจะส่งเป็น body แทนการ redirect
-    # return jsonify({
-    #     "status": "success",
-    #     "authorization_url": full_auth_url
-    # })
-    return redirect(full_auth_url)
+    return jsonify({
+         "status": "success",
+         "authorization_url": full_auth_url
+    })
+    # return redirect(full_auth_url)
 
-# 2. 🚀 Endpoint ใหม่สำหรับ Workflow (สั่งเปิดเบราว์เซอร์โดยตรง)
+# 2. 🚀 Endpoint ใหม่สำหรับ Login ครั้งแรก เพื่อเอา refresh token
 @app.route('/auth/google/open')
 def google_auth_open():
     """สร้าง URL, สั่งเปิดเบราว์เซอร์โดยตรง, และส่ง URL กลับเป็น JSON"""
-    
     REDIRECT_URI = os.getenv("REDIRECT_URI")
-    
+
     auth_params = {
         'client_id': CLIENT_ID,
         'redirect_uri': REDIRECT_URI,
         'response_type': 'code',
-        'scope': 'https://www.googleapis.com/auth/calendar',
+        'scope': CALENDAR_SCOPE,
         'access_type': 'offline', 
         'prompt': 'consent'
     }
@@ -71,14 +100,14 @@ def google_auth_open():
     
     # ** 💥 คำสั่งที่สั่งเปิดเบราว์เซอร์โดยตรง 💥 **
     # *คำเตือน: คำสั่งนี้รันบนเครื่องที่รัน Backend นี้เท่านั้น (เครื่อง Local ของคุณ)*
-    try:
-        webbrowser.open(full_auth_url)
-        print(f"Browser opened for OAuth: {full_auth_url}")
-        status_msg = "Browser opened for authorization."
-    except Exception as e:
-        print(f"ERROR opening browser: {e}")
+    # try:
+    #     webbrowser.open(full_auth_url)
+    #     print(f"Browser opened for OAuth: {full_auth_url}")
+    # except Exception as e:
+    #     print(f"ERROR opening browser: {e}")
         
     return jsonify({
+        "status": "success",
         "authorization_url": full_auth_url
     })
     
@@ -125,7 +154,6 @@ def google_callback():
     """รับ Code และแลกเปลี่ยนเป็น Access Token และ Refresh Token"""
     global GLOBAL_REFRESH_TOKEN
     global GLOBAL_ACCESS_TOKEN_CACHE
-    
     # 1. รับ Authorization Code
     auth_code = request.args.get('code')
     if not auth_code:
@@ -153,7 +181,9 @@ def google_callback():
     # เก็บ Refresh Token ไว้ใช้ในอนาคต (ในระบบจริงควรเก็บใน DB)
     if 'refresh_token' in token_info:
         GLOBAL_REFRESH_TOKEN = token_info.get('refresh_token')
-    
+
+    set_key('.env', 'GLOBAL_REFRESH_TOKEN', GLOBAL_REFRESH_TOKEN)
+    print("REFRESH TOKEN RESPONSE:", GLOBAL_REFRESH_TOKEN)
     # 4. เก็บ Access Token ชั่วคราว เพื่อส่งไปที่ /success
     GLOBAL_ACCESS_TOKEN_CACHE = token_info.get('access_token')
     print("TOKENS RECEIVED:", GLOBAL_ACCESS_TOKEN_CACHE)
@@ -169,6 +199,24 @@ def google_callback():
     return redirect(url_for('success_page'))
 
 @app.route('/api/get_token', methods=['GET'])
+def get_token_gateway():
+ 
+    access_token = refresh_access_token_logic()
+    print("ACCESS TOKEN:", access_token)
+    print("bool :", bool(access_token))
+    
+    if bool(access_token):
+        return jsonify({
+            "status": "201",
+            "access_token": access_token
+        })
+    else:
+        return jsonify({
+            "status": "401",
+            "access_token": "Error: No Refresh Token"
+        })
+
+@app.route('/api/get_access_token', methods=['GET'])
 def get_latest_token_for_workflow():
 
     global GLOBAL_ACCESS_TOKEN_CACHE
@@ -204,6 +252,42 @@ def success_page():
     """
     # 💥 สั่งให้ส่ง HTML กลับไปเลย เมื่อเป็น GET
     return render_template_string(html_content)
+
+# 4. Endpoint สำหรับขอ Access Token อัตโนมัติโดยใช้ Service Account
+@app.route('/api/get_service_token', methods=['GET'])
+def get_service_token():
+    """
+    ใช้ Service Account Key เพื่อขอ Access Token สำหรับการทำงานแบบ Server-to-Server
+    """ 
+    
+    # 1. โหลด Credentials จากไฟล์ JSON Key
+    try:
+        # credentials.refresh(requests.Request())
+        credentials = service_account.Credentials.from_service_account_file(
+            SERVICE_ACCOUNT_KEY_FILE, 
+            scopes=[CALENDAR_SCOPE]
+        )
+    except Exception as e:
+        # มักเกิดจากหาไฟล์ไม่เจอ หรือโครงสร้าง JSON ผิดพลาด
+        return jsonify({"error": "Failed to load service account credentials", "detail": str(e)}), 500
+
+    # 2. ทำการ Refresh Credentials เพื่อขอ Access Token
+    # ขั้นตอนนี้จะติดต่อกับ Google โดยอัตโนมัติ
+    try:
+  
+        credentials.refresh(GoogleAuthRequest())
+        service_access_token = credentials.token
+    except Exception as e:
+        return jsonify({"error": "Failed to refresh token from Google", "detail": str(e)}), 500
+
+    if service_access_token:
+        # 3. ส่ง Access Token กลับไปให้ Workflow Engine
+        return jsonify({
+            "status": "success",
+            "access_token": service_access_token
+        })
+    else:
+        return jsonify({"error": "Could not retrieve access token."}), 500
     
 ## 3. 🧠 Endpoint ที่ Workflow Engine จะเรียกใช้
 # @app.route('/api/workflow', methods=['POST'])
