@@ -1,5 +1,5 @@
 import time
-from flask import Flask, request, redirect, jsonify, session, url_for, render_template_string
+from flask import Flask, request, redirect, jsonify, session, url_for, render_template, make_response
 import requests
 import os
 import webbrowser
@@ -199,7 +199,7 @@ def google_callback():
     #     "refresh_token_stored": bool(GLOBAL_REFRESH_TOKEN),
     #     "next_step": f"ใช้ Access Token นี้หรือเรียก /api/workflow"
     # })
-    return redirect(CALLBACK_URL)
+    return redirect(url_for('success_page'))
 
 @app.route('/api/get_token', methods=['GET'])
 def get_token_gateway():
@@ -244,7 +244,6 @@ def get_latest_token_for_workflow():
 
 @app.route('/login-success')
 def success_page():
-    print("SUCCESS PAGE ACCESSED!")
     html_content = """
     <html>
         <body>
