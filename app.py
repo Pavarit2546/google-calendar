@@ -199,7 +199,7 @@ def google_callback():
     #     "refresh_token_stored": bool(GLOBAL_REFRESH_TOKEN),
     #     "next_step": f"ใช้ Access Token นี้หรือเรียก /api/workflow"
     # })
-    return redirect(url_for('success_page'))
+    return redirect(CALLBACK_URL)
 
 @app.route('/api/get_token', methods=['GET'])
 def get_token_gateway():
@@ -244,17 +244,7 @@ def get_latest_token_for_workflow():
 
 @app.route('/login-success')
 def success_page():
-    html_content = """
-    <html>
-        <body>
-            <h1>✅ เชื่อมต่อ Google Calendar สำเร็จ!</h1>
-            <p>ระบบได้จัดเก็บสิทธิ์การเข้าถึง (Refresh Token) เรียบร้อยแล้ว</p>
-            <p>คุณสามารถปิดหน้าต่างนี้ได้เลย</p>
-        </body>
-    </html>
-    """
-    # 💥 สั่งให้ส่ง HTML กลับไปเลย เมื่อเป็น GET
-    return render_template_string(html_content)
+    return render_template('success.html')
 
 # 4. Endpoint สำหรับขอ Access Token อัตโนมัติโดยใช้ Service Account
 @app.route('/api/get_service_token', methods=['GET'])
