@@ -18,6 +18,7 @@ TOKEN_ENDPOINT = os.getenv("TOKEN_ENDPOINT")
 AUTH_URL = os.getenv("AUTH_URL")
 CALENDAR_API_BASE = os.getenv("CALENDAR_API_BASE")
 CALENDAR_SCOPE = os.getenv("CALENDAR_SCOPE")
+CALLBACK_URL = os.getenv("CALLBACK_URL")
 
 GLOBAL_REFRESH_TOKEN = os.getenv("GLOBAL_REFRESH_TOKEN", '')
 GLOBAL_ACCESS_TOKEN_CACHE = ''
@@ -152,10 +153,12 @@ def google_auth_open():
 @app.route('/auth/google/callback')
 def google_callback():
     """รับ Code และแลกเปลี่ยนเป็น Access Token และ Refresh Token"""
+    print("CALLBACK FUNCTION CALLED!")
     global GLOBAL_REFRESH_TOKEN
     global GLOBAL_ACCESS_TOKEN_CACHE
     # 1. รับ Authorization Code
     auth_code = request.args.get('code')
+    print(f"Auth code received: {auth_code[:20]}..." if auth_code else "No auth code")
     if not auth_code:
         return "Authorization Code not found.", 400
 
@@ -196,7 +199,8 @@ def google_callback():
     #     "refresh_token_stored": bool(GLOBAL_REFRESH_TOKEN),
     #     "next_step": f"ใช้ Access Token นี้หรือเรียก /api/workflow"
     # })
-    return redirect(url_for('success_page'))
+    print(f"Redirecting to {login_success_url}")
+    return redirect(CALLBACK_URL)
 
 @app.route('/api/get_token', methods=['GET'])
 def get_token_gateway():
@@ -239,8 +243,9 @@ def get_latest_token_for_workflow():
     return jsonify({"error": f"Access Token not found after {max_retries * delay_seconds} seconds. Authorization failed or timed out."}), 404
     
 
-@app.route('/success')
+@app.route('/login-success')
 def success_page():
+    print("SUCCESS PAGE ACCESSED!")
     html_content = """
     <html>
         <body>
@@ -364,4 +369,4 @@ if __name__ == '__main__':
     print("ขั้นตอนที่ 2: ตั้งค่า Redirect URI ใน Google Cloud Console")
     print("ขั้นตอนที่ 3: ไปที่ http://127.0.0.1:5000/auth/google เพื่อเริ่ม OAuth Flow")
     print("-----------------------------------------------------")
-    app.run(debug=True, port=5000)
+    app.run(host='0.0.0.0', debug=True, port=5000)
