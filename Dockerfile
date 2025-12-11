@@ -12,6 +12,7 @@ RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted
 
 # Copy application code
 COPY app.py .
+COPY templates/ templates/
 
 # Expose port 5000
 EXPOSE 5000
