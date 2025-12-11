@@ -199,7 +199,6 @@ def google_callback():
     #     "refresh_token_stored": bool(GLOBAL_REFRESH_TOKEN),
     #     "next_step": f"ใช้ Access Token นี้หรือเรียก /api/workflow"
     # })
-    print(f"Redirecting to {login_success_url}")
     return redirect(CALLBACK_URL)
 
 @app.route('/api/get_token', methods=['GET'])
