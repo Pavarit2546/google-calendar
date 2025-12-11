@@ -1,5 +1,5 @@
 import time
-from flask import Flask, request, redirect, jsonify, session, url_for, render_template, make_response
+from flask import Flask, request, redirect, jsonify, session, url_for, render_template, render_template_string ,make_response
 import requests
 import os
 import webbrowser
